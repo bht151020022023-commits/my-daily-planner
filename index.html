@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f3f5f9">
+<title>Lịch cá nhân</title>
+<style>
+:root{font-family:Arial,sans-serif;color:#202938;background:#f3f5f9}
+*{box-sizing:border-box}
+body{margin:0;padding:16px}
+main{max-width:900px;margin:auto;background:#fff;padding:22px;border-radius:18px;box-shadow:0 5px 25px #0000000b}
+h1{margin:0 0 6px;font-size:27px}h2{font-size:19px;margin:0 0 12px}
+p{line-height:1.5}.muted{color:#657286;font-size:14px;line-height:1.5}
+input,button,textarea{font:inherit;border-radius:9px;padding:11px}
+input,textarea{border:1px solid #d5dce6;width:100%;background:#fff;color:#202938}
+button{border:0;background:#2563eb;color:#fff;cursor:pointer}
+button:disabled{opacity:.55;cursor:wait}
+.secondary{background:#e9edf4;color:#263247}.danger{background:#fee2e2;color:#991b1b}
+.actions{display:flex;gap:8px;flex-wrap:wrap}.actions>*{flex:1}
+.field{display:block;margin:10px 0}.field span{display:block;font-size:14px;margin-bottom:5px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.panel{border:1px solid #e4e9f0;border-radius:13px;padding:15px;margin-top:16px}
+#status{padding:11px;background:#eef4ff;border-radius:9px;font-size:14px;overflow-wrap:anywhere}
+#app{display:none}
+.progress{height:8px;background:#e8edf5;border-radius:9px;overflow:hidden}.progress>div{height:100%;width:0;background:#2563eb;transition:width .2s}
+.task{display:flex;gap:10px;padding:13px 0;border-bottom:1px solid #edf0f4;align-items:flex-start}
+.task input[type=checkbox]{width:19px;height:19px;margin:3px 0 0;flex-shrink:0}
+.task-main{flex:1;min-width:0}.task-time{font-size:13px;color:#2563eb;font-weight:bold;margin-bottom:4px}
+.task-title{font-weight:bold;overflow-wrap:anywhere}.task-desc{font-size:14px;color:#657286;margin-top:4px;white-space:pre-wrap}
+.task.done .task-title{text-decoration:line-through;color:#8993a1}
+.task-buttons{display:flex;gap:5px}.task-buttons button{padding:7px 9px;font-size:13px}
+.empty{padding:24px 8px;text-align:center;color:#657286}
+small{color:#657286}
+@media(max-width:600px){body{padding:8px}main{padding:16px}.grid{grid-template-columns:1fr}h1{font-size:23px}.task-buttons{flex-direction:column}}
+</style>
+</head>
+<body>
+<main>
+  <h1>🗓️ Lịch cá nhân</h1>
+  <p class="muted">Tạo lịch riêng cho từng ngày, lưu trên Supabase và mở cùng dữ liệu bằng máy tính hoặc iPhone.</p>
+  <div id="status" role="status" aria-live="polite">Đang khởi tạo...</div>
+
+  <section id="auth" class="panel">
+    <h2>Đăng nhập</h2>
+    <p class="muted">Dùng cùng một tài khoản trên mọi thiết bị. Nếu chưa có tài khoản, tạo một tài khoản trước khi tắt đăng ký công khai.</p>
+    <form id="authForm">
+      <label class="field"><span>Email</span><input id="email" type="email" autocomplete="email" required></label>
+      <label class="field"><span>Mật khẩu (tối thiểu 8 ký tự)</span><input id="password" type="password" minlength="8" autocomplete="current-password" required></label>
+      <div class="actions">
+        <button type="submit">Đăng nhập</button>
+        <button type="button" id="signupBtn" class="secondary">Tạo tài khoản</button>
+      </div>
+    </form>
+  </section>
+
+  <section id="app" style="display:none">
+    <div class="panel">
+      <div class="grid">
+        <label class="field"><span>Ngày cần xem / chỉnh sửa</span><input id="planDate" type="date" value="2026-10-27"></label>
+        <div class="field"><span>Tài khoản</span><p id="account" class="muted"></p><button id="logoutBtn" class="secondary" type="button">Đăng xuất</button></div>
+      </div>
+      <div class="actions">
+        <button id="todayBtn" class="secondary" type="button">Hôm nay</button>
+        <button id="tomorrowBtn" class="secondary" type="button">Ngày mai</button>
+        <button id="reloadBtn" class="secondary" type="button">Tải lại lịch</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2 id="planHeading">Lịch trong ngày</h2>
+      <div class="progress"><div id="progressFill"></div></div>
+      <p id="progressText" class="muted">0/0 nhiệm vụ hoàn thành</p>
+      <p class="muted">Mỗi ngày có danh sách nhiệm vụ và trạng thái hoàn thành riêng.</p>
+      <div id="tasks"></div>
+    </div>
+
+    <div class="panel">
+      <h2 id="formHeading">Thêm nhiệm vụ</h2>
+      <form id="taskForm">
+        <input type="hidden" id="editId">
+        <label class="field"><span>Tên nhiệm vụ *</span><input id="taskTitle" maxlength="180" required placeholder="Ví dụ: Học 50 câu PW1300"></label>
+        <div class="grid">
+          <label class="field"><span>Giờ bắt đầu</span><input id="startTime" type="time"></label>
+          <label class="field"><span>Giờ kết thúc</span><input id="endTime" type="time"></label>
+        </div>
+        <label class="field"><span>Ghi chú</span><textarea id="taskDescription" rows="2" maxlength="1000" placeholder="Nội dung cần làm, chuẩn bị..."></textarea></label>
+        <div class="actions">
+          <button type="submit" id="saveTaskBtn">Lưu nhiệm vụ</button>
+          <button type="button" id="cancelEditBtn" class="secondary" style="display:none">Hủy sửa</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="actions" style="margin-top:16px">
+      <button id="copyTomorrowBtn" type="button" class="secondary">Sao chép lịch sang ngày mai</button>
+      <button id="clearDayBtn" type="button" class="danger">Xóa toàn bộ lịch ngày này</button>
+    </div>
+  </section>
+  <p class="muted" style="margin-top:20px">Bảo mật: không đưa Secret key vào file HTML. Database cần bật RLS. Dữ liệu lịch chỉ được tải và sửa bởi tài khoản đang đăng nhập sở hữu dữ liệu.</p>
+</main>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+const SUPABASE_URL = 'https://utevkdaeeqtttwibcudp.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_JlTklfTWlXxWQJHqyORnHw_Gcop0Vuy';
+
+const statusBox = document.getElementById('status');
+const authSection = document.getElementById('auth');
+const appSection = document.getElementById('app');
+const dateInput = document.getElementById('planDate');
+
+let supabase;
+let currentUser = null;
+let planTasks = [];
+let busy = false;
+let authVersion = 0;
+let loadVersion = 0;
+
+const starterTasks = [
+  {id:crypto.randomUUID(),start:'10:59',end:'12:00',title:'Học PW1300 — lượt 1',description:'Mục tiêu 40–50 câu; ghi lại câu sai.',done:false},
+  {id:crypto.randomUUID(),start:'12:00',end:'12:45',title:'Ăn trưa và nghỉ ngơi',description:'Ăn đủ chất, uống nước.',done:false},
+  {id:crypto.randomUUID(),start:'12:45',end:'14:15',title:'Học PW1300 — lượt 2',description:'Tiếp tục làm câu hỏi và hiểu đáp án.',done:false},
+  {id:crypto.randomUUID(),start:'14:15',end:'15:00',title:'Xem bài giảng Wednesday',description:'Ghi lý do bỏ thuốc lá và thay đổi thói quen thủ dâm.',done:false},
+  {id:crypto.randomUUID(),start:'15:00',end:'16:20',title:'Học PW1300 — lượt 3',description:'Tiếp tục hướng tới 200 câu.',done:false},
+  {id:crypto.randomUUID(),start:'16:20',end:'16:30',title:'Chuẩn bị check-out',description:'Chuẩn bị các việc cần làm trước khi rời nơi làm.',done:false},
+  {id:crypto.randomUUID(),start:'16:30',end:'17:10',title:'Check-out và di chuyển',description:'Dành đủ 40 phút.',done:false},
+  {id:crypto.randomUUID(),start:'17:10',end:'17:30',title:'Mua thực phẩm',description:'Mua rau nấu canh hoặc chuối.',done:false},
+  {id:crypto.randomUUID(),start:'17:30',end:'17:40',title:'Khởi động',description:'Thay đồ, khởi động và uống nước.',done:false},
+  {id:crypto.randomUUID(),start:'17:40',end:'19:10',title:'Chạy bộ 10 km',description:'Dự kiến 90 phút, điều chỉnh theo thể lực.',done:false},
+  {id:crypto.randomUUID(),start:'19:10',end:'19:30',title:'Thả lỏng và tắm',description:'Uống nước và phục hồi.',done:false},
+  {id:crypto.randomUUID(),start:'19:30',end:'20:30',title:'Hoàn thành PW1300',description:'Làm câu còn lại, kiểm tra câu sai.',done:false},
+  {id:crypto.randomUUID(),start:'20:30',end:'21:00',title:'Viết lý do thay đổi thói quen',description:'Ghi nguyên nhân và cách xử lý khi thèm thuốc.',done:false},
+  {id:crypto.randomUUID(),start:'21:00',end:'21:30',title:'Ôn câu sai',description:'Ghi kiến thức cần ôn ngày mai.',done:false},
+  {id:crypto.randomUUID(),start:'21:30',end:'22:00',title:'Chuẩn bị đi ngủ',description:'Thư giãn và chuẩn bị cho ngày mai.',done:false}
+];
+
+function message(s){statusBox.textContent=s}
+function localDateString(date=new Date()){
+  const y=date.getFullYear(),m=String(date.getMonth()+1).padStart(2,'0'),d=String(date.getDate()).padStart(2,'0');
+  return `${y}-${m}-${d}`;
+}
+function datePlus(dateString,days){
+  const d=new Date(dateString+'T12:00:00');
+  d.setDate(d.getDate()+days);
+  return localDateString(d);
+}
+function showSignedIn(user){
+  currentUser=user;authSection.style.display='none';appSection.style.display='block';
+  document.getElementById('account').textContent=user.email||'Đã đăng nhập';
+}
+function showSignedOut(){
+  currentUser=null;authSection.style.display='block';appSection.style.display='none';
+}
+function resetForm(){
+  document.getElementById('taskForm').reset();
+  document.getElementById('editId').value='';
+  document.getElementById('formHeading').textContent='Thêm nhiệm vụ';
+  document.getElementById('saveTaskBtn').textContent='Lưu nhiệm vụ';
+  document.getElementById('cancelEditBtn').style.display='none';
+}
+function render(){
+  const list=document.getElementById('tasks');list.replaceChildren();
+  const sorted=[...planTasks].sort((a,b)=>(a.start||'99:99').localeCompare(b.start||'99:99'));
+  sorted.forEach(task=>{
+    const row=document.createElement('div');row.className='task'+(task.done?' done':'');
+    const check=document.createElement('input');check.type='checkbox';check.checked=!!task.done;check.disabled=busy;
+    check.setAttribute('aria-label','Đánh dấu hoàn thành '+task.title);
+    const body=document.createElement('div');body.className='task-main';
+    const time=document.createElement('div');time.className='task-time';
+    time.textContent=[task.start,task.end].filter(Boolean).join('–')||'Chưa đặt giờ';
+    const title=document.createElement('div');title.className='task-title';title.textContent=task.title;
+    const desc=document.createElement('div');desc.className='task-desc';desc.textContent=task.description||'';
+    body.append(time,title);if(task.description)body.append(desc);
+    const buttons=document.createElement('div');buttons.className='task-buttons';
+    const edit=document.createElement('button');edit.type='button';edit.className='secondary';edit.textContent='Sửa';
+    edit.addEventListener('click',()=>beginEdit(task));
+    const del=document.createElement('button');del.type='button';del.className='danger';del.textContent='Xóa';
+    del.addEventListener('click',()=>deleteTask(task.id));
+    buttons.append(edit,del);row.append(check,body,buttons);list.append(row);
+    check.addEventListener('change',async()=>{
+      if(busy)return;
+      const before=structuredClone(planTasks);
+      planTasks=planTasks.map(t=>t.id===task.id?{...t,done:check.checked}:t);
+      render();await savePlan(before);
+    });
+  });
+  if(!sorted.length){const empty=document.createElement('div');empty.className='empty';empty.textContent='Chưa có nhiệm vụ. Hãy thêm nhiệm vụ bên dưới.';list.append(empty)}
+  const done=planTasks.filter(t=>t.done).length;
+  document.getElementById('progressText').textContent=`${done}/${planTasks.length} nhiệm vụ hoàn thành`;
+  document.getElementById('progressFill').style.width=`${planTasks.length?done/planTasks.length*100:0}%`;
+  document.getElementById('planHeading').textContent='Lịch ngày '+dateInput.value;
+}
+async function loadPlan(){
+  if(!currentUser||!dateInput.value)return;
+  const userId=currentUser.id,version=authVersion,load=++loadVersion,day=dateInput.value;
+  message('Đang tải lịch '+day+'...');
+  const {data,error}=await supabase.from('daily_plans').select('tasks').eq('user_id',userId).eq('plan_date',day).maybeSingle();
+  if(version!==authVersion||load!==loadVersion||!currentUser||currentUser.id!==userId)return;
+  if(error){message('Không tải được lịch: '+error.message+' — hãy kiểm tra bảng daily_plans và RLS.');return}
+  if(data){
+    planTasks=Array.isArray(data.tasks)?data.tasks:[];
+  }else{
+    // Lịch mẫu chỉ được tự thêm cho ngày khởi tạo 27/10/2026.
+    planTasks=day==='2026-10-27'?structuredClone(starterTasks):[];
+  }
+  render();message(data?'Đã tải lịch từ Supabase.':(day==='2026-10-27'?'Đây là lịch mẫu. Hãy lưu khi chỉnh sửa để đưa lên Supabase.':'Ngày này chưa có lịch. Thêm nhiệm vụ hoặc sao chép lịch.'));
+}
+async function savePlan(previous=structuredClone(planTasks)){
+  if(!currentUser||busy)return;
+  busy=true;render();
+  const userId=currentUser.id,version=authVersion,day=dateInput.value;
+  message('Đang lưu lịch lên Supabase...');
+  const {error}=await supabase.from('daily_plans').upsert({
+    user_id:userId,plan_date:day,tasks:planTasks,updated_at:new Date().toISOString()
+  },{onConflict:'user_id,plan_date'});
+  busy=false;
+  if(version!==authVersion||!currentUser||currentUser.id!==userId)return;
+  if(error){planTasks=previous;render();message('Lưu thất bại: '+error.message);return}
+  render();message('Đã lưu lịch '+day+' thành công lên Supabase.');
+}
+function beginEdit(task){
+  document.getElementById('editId').value=task.id;
+  document.getElementById('taskTitle').value=task.title||'';
+  document.getElementById('startTime').value=task.start||'';
+  document.getElementById('endTime').value=task.end||'';
+  document.getElementById('taskDescription').value=task.description||'';
+  document.getElementById('formHeading').textContent='Sửa nhiệm vụ';
+  document.getElementById('saveTaskBtn').textContent='Lưu thay đổi';
+  document.getElementById('cancelEditBtn').style.display='block';
+  document.getElementById('taskTitle').focus();
+}
+async function deleteTask(id){
+  if(!confirm('Bạn có chắc muốn xóa nhiệm vụ này?'))return;
+  const previous=structuredClone(planTasks);planTasks=planTasks.filter(t=>t.id!==id);
+  render();await savePlan(previous);
+}
+document.getElementById('taskForm').addEventListener('submit',async e=>{
+  e.preventDefault();if(busy||!currentUser)return;
+  const previous=structuredClone(planTasks),id=document.getElementById('editId').value;
+  const task={
+    id:id||crypto.randomUUID(),
+    title:document.getElementById('taskTitle').value.trim(),
+    start:document.getElementById('startTime').value,
+    end:document.getElementById('endTime').value,
+    description:document.getElementById('taskDescription').value.trim(),
+    done:id?(planTasks.find(t=>t.id===id)?.done||false):false
+  };
+  if(!task.title)return;
+  planTasks=id?planTasks.map(t=>t.id===id?task:t):[...planTasks,task];
+  resetForm();render();await savePlan(previous);
+});
+document.getElementById('cancelEditBtn').addEventListener('click',resetForm);
+dateInput.addEventListener('change',loadPlan);
+document.getElementById('todayBtn').addEventListener('click',()=>{dateInput.value=localDateString();loadPlan()});
+document.getElementById('tomorrowBtn').addEventListener('click',()=>{dateInput.value=datePlus(localDateString(),1);loadPlan()});
+document.getElementById('reloadBtn').addEventListener('click',loadPlan);
+document.getElementById('copyTomorrowBtn').addEventListener('click',async()=>{
+  if(!currentUser||busy)return;
+  const target=datePlus(dateInput.value,1);
+  const {data,error}=await supabase.from('daily_plans').select('tasks').eq('user_id',currentUser.id).eq('plan_date',target).maybeSingle();
+  if(error){message('Không kiểm tra được lịch ngày mai: '+error.message);return}
+  if(data&&!confirm('Ngày mai đã có lịch. Bạn muốn ghi đè lịch ngày mai không?'))return;
+  const copied=planTasks.map(t=>({...t,id:crypto.randomUUID(),done:false}));
+  const {error:saveError}=await supabase.from('daily_plans').upsert({
+    user_id:currentUser.id,plan_date:target,tasks:copied,updated_at:new Date().toISOString()
+  },{onConflict:'user_id,plan_date'});
+  if(saveError){message('Sao chép thất bại: '+saveError.message);return}
+  dateInput.value=target;await loadPlan();message('Đã sao chép lịch sang '+target+'.');
+});
+document.getElementById('clearDayBtn').addEventListener('click',async()=>{
+  if(!currentUser||busy)return;
+  if(!confirm('Xóa toàn bộ lịch ngày '+dateInput.value+'? Thao tác này không thể hoàn tác.'))return;
+  const previous=structuredClone(planTasks);planTasks=[];render();await savePlan(previous);
+});
+document.getElementById('authForm').addEventListener('submit',async e=>{
+  e.preventDefault();if(!supabase)return;
+  message('Đang đăng nhập...');
+  const {error}=await supabase.auth.signInWithPassword({
+    email:document.getElementById('email').value.trim(),
+    password:document.getElementById('password').value
+  });
+  if(error)message('Đăng nhập thất bại: '+error.message);
+});
+document.getElementById('signupBtn').addEventListener('click',async()=>{
+  if(!supabase)return;
+  const email=document.getElementById('email').value.trim(),password=document.getElementById('password').value;
+  if(!email||password.length<8){message('Nhập email hợp lệ và mật khẩu ít nhất 8 ký tự.');return}
+  message('Đang tạo tài khoản...');
+  const {data,error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:location.origin+location.pathname}});
+  if(error)message('Tạo tài khoản thất bại: '+error.message);
+  else if(!data.session)message('Hãy mở email xác nhận rồi đăng nhập.');
+  else message('Tạo tài khoản thành công.');
+});
+document.getElementById('logoutBtn').addEventListener('click',async()=>{if(supabase)await supabase.auth.signOut()});
+
+async function start(){
+  try{
+    supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
+    supabase.auth.onAuthStateChange((event,session)=>{
+      setTimeout(async()=>{
+        authVersion++;
+        if(session?.user){showSignedIn(session.user);await loadPlan()}
+        else{showSignedOut();planTasks=[];render();message('Hãy đăng nhập để xem lịch riêng của bạn.')}
+      },0);
+    });
+    const {data,error}=await supabase.auth.getSession();if(error)throw error;
+    if(data.session?.user){authVersion++;showSignedIn(data.session.user);dateInput.value=localDateString();await loadPlan()}
+    else{showSignedOut();message('Đăng nhập hoặc tạo tài khoản để bắt đầu.')}
+  }catch(error){message('Không thể kết nối Supabase: '+error.message)}
+}
+start();
+</script>
+</body>
+</html>
