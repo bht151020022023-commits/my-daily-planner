@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f3f5f9">
+<title>Kế hoạch cá nhân</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:#f3f5f9;color:#202938;font-family:Arial,sans-serif}
+main{max-width:700px;margin:auto;background:#fff;padding:22px;border-radius:18px;box-shadow:0 5px 25px #0000000c}
+h1{font-size:25px;margin-top:0}
+input,button{font:inherit;padding:12px;border-radius:9px}
+input{border:1px solid #d5dce6;width:100%;margin:5px 0 12px}
+button{border:0;background:#2563eb;color:white;cursor:pointer}
+button:disabled{opacity:.55;cursor:wait}
+button.secondary{background:#e9edf4;color:#263247}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.actions button{flex:1}
+.muted{color:#657286;font-size:14px;line-height:1.5}
+#status{padding:11px;background:#eef4ff;border-radius:8px;overflow-wrap:anywhere;font-size:14px;line-height:1.5}
+#app{display:none}
+.bar{height:8px;background:#e8edf5;border-radius:9px;overflow:hidden}
+#progress{height:100%;width:0;background:#2563eb;transition:width .2s}
+.task{display:flex;gap:12px;padding:15px 0;border-bottom:1px solid #edf0f4;cursor:pointer}
+.task input{width:19px;height:19px;margin-top:4px;flex-shrink:0}
+.task .time{font-size:13px;color:#2563eb;font-weight:bold;margin-bottom:5px}
+.task .name{font-weight:bold;line-height:1.4}
+.task .detail{font-size:14px;color:#657286;margin-top:5px;line-height:1.5}
+.task.done .name{text-decoration:line-through;color:#8993a1}
+.tag{font-size:12px;color:#365e9d;margin-top:6px}
+section{margin:20px 0}
+.small{font-size:12px;color:#657286}
+</style>
+</head>
+<body>
+<main>
+  <h1>🎯 Kế hoạch cá nhân</h1>
+  <p class="muted">Thời gian biểu ngày 27/10/2026 · Tiến độ được lưu trên Supabase</p>
+  <p id="status" role="status" aria-live="polite">Đang khởi tạo...</p>
+
+  <section id="auth">
+    <h2>Đăng nhập</h2>
+    <p class="muted">Tạo tài khoản một lần, sau đó dùng cùng email và mật khẩu trên máy tính và iPhone.</p>
+    <form id="authForm">
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" required>
+      <label for="password">Mật khẩu (ít nhất 8 ký tự)</label>
+      <input id="password" type="password" minlength="8" autocomplete="current-password" required>
+      <div class="actions">
+        <button type="submit" id="loginBtn">Đăng nhập</button>
+        <button type="button" class="secondary" id="signupBtn">Tạo tài khoản</button>
+      </div>
+    </form>
+  </section>
+
+  <section id="app">
+    <p id="account" class="muted"></p>
+    <div class="actions">
+      <button id="refreshBtn" class="secondary">Tải lại tiến độ</button>
+      <button id="logoutBtn" class="secondary">Đăng xuất</button>
+    </div>
+    <section>
+      <h2>Tiến độ hôm nay</h2>
+      <div class="bar"><div id="progress"></div></div>
+      <p id="counter" class="muted">0/15 nhiệm vụ hoàn thành</p>
+    </section>
+    <div id="tasks"></div>
+  </section>
+  <p class="small">Nếu email cần xác nhận, hãy mở email xác nhận trước khi đăng nhập. Không chia sẻ mật khẩu hoặc Secret key.</p>
+</main>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+const SUPABASE_URL = 'https://utevkdaeeqtttwibcudp.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_JlTklfTWlXxWQJHqyORnHw_Gcop0Vuy';
+const PLAN_DATE = '2026-10-27';
+
+const statusBox = document.getElementById('status');
+const authSection = document.getElementById('auth');
+const appSection = document.getElementById('app');
+
+let supabase = null;
+let currentUser = null;
+let completed = [];
+let busy = false;
+let authVersion = 0;
+
+const tasks = [
+  ['10:59–12:00','Học PW1300 — lượt 1','Mục tiêu 40–50 câu; ghi lại câu sai.','Học tập'],
+  ['12:00–12:45','Ăn trưa và nghỉ ngơi','Ăn đủ chất, uống nước.','Sức khỏe'],
+  ['12:45–14:15','Học PW1300 — lượt 2','Tiếp tục làm câu hỏi và hiểu đáp án.','Học tập'],
+  ['14:15–15:00','Xem bài giảng Wednesday','Ghi lý do bỏ thuốc lá và thay đổi thói quen thủ dâm.','Kỷ luật'],
+  ['15:00–16:20','Học PW1300 — lượt 3','Tiếp tục hướng tới 200 câu.','Học tập'],
+  ['16:20–16:30','Chuẩn bị check-out','Chuẩn bị các việc cần làm trước khi rời nơi làm.','Công việc'],
+  ['16:30–17:10','Check-out và di chuyển','Dành đủ 40 phút.','Công việc'],
+  ['17:10–17:30','Mua thực phẩm','Mua rau nấu canh hoặc chuối.','Sinh hoạt'],
+  ['17:30–17:40','Khởi động','Thay đồ, khởi động và uống nước.','Thể lực'],
+  ['17:40–19:10','Chạy bộ 10 km','Dự kiến 90 phút, điều chỉnh theo thể lực.','Thể lực'],
+  ['19:10–19:30','Thả lỏng và tắm','Uống nước và phục hồi.','Sức khỏe'],
+  ['19:30–20:30','Hoàn thành PW1300','Làm câu còn lại, kiểm tra câu sai.','Học tập'],
+  ['20:30–21:00','Viết lý do thay đổi thói quen','Ghi nguyên nhân và cách xử lý khi thèm thuốc.','Kỷ luật'],
+  ['21:00–21:30','Ôn câu sai','Ghi kiến thức cần ôn ngày mai.','Học tập'],
+  ['22:00','Đi ngủ','Thư giãn và chuẩn bị cho ngày mai.','Nghỉ ngơi']
+];
+
+function message(text) { statusBox.textContent = text; }
+
+function showSignedIn(user) {
+  currentUser = user;
+  authSection.style.display = 'none';
+  appSection.style.display = 'block';
+  document.getElementById('account').textContent = 'Đã đăng nhập: ' + user.email;
+}
+function showSignedOut() {
+  currentUser = null;
+  authSection.style.display = 'block';
+  appSection.style.display = 'none';
+}
+
+function renderTasks() {
+  const container = document.getElementById('tasks');
+  container.replaceChildren();
+  tasks.forEach((task, i) => {
+    const label = document.createElement('label');
+    label.className = 'task' + (completed.includes(i) ? ' done' : '');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = completed.includes(i);
+    cb.disabled = busy;
+    const content = document.createElement('div');
+    const time = document.createElement('div');
+    time.className = 'time'; time.textContent = task[0];
+    const name = document.createElement('div');
+    name.className = 'name'; name.textContent = task[1];
+    const detail = document.createElement('div');
+    detail.className = 'detail'; detail.textContent = task[2];
+    const tag = document.createElement('div');
+    tag.className = 'tag'; tag.textContent = task[3];
+    content.append(time, name, detail, tag);
+    label.append(cb, content);
+    container.append(label);
+
+    cb.addEventListener('change', async () => {
+      if (busy) return;
+      const previous = [...completed];
+      completed = cb.checked
+        ? [...new Set([...completed, i])]
+        : completed.filter(n => n !== i);
+      renderTasks();
+      await saveProgress(previous);
+    });
+  });
+  document.getElementById('counter').textContent =
+    `${completed.length}/${tasks.length} nhiệm vụ hoàn thành`;
+  document.getElementById('progress').style.width =
+    `${completed.length / tasks.length * 100}%`;
+}
+
+async function loadProgress() {
+  if (!currentUser) return;
+  const userId = currentUser.id;
+  const version = authVersion;
+  message('Đang tải tiến độ từ database...');
+  const { data, error } = await supabase
+    .from('daily_progress')
+    .select('completed_indices')
+    .eq('user_id', userId)
+    .eq('plan_date', PLAN_DATE)
+    .maybeSingle();
+
+  if (version !== authVersion || !currentUser || currentUser.id !== userId) return;
+  if (error) {
+    message('Không tải được dữ liệu: ' + error.message);
+    return;
+  }
+  completed = data?.completed_indices ?? [];
+  renderTasks();
+  message('Đã tải tiến độ từ database.');
+}
+
+async function saveProgress(previous) {
+  if (!currentUser || busy) return;
+  busy = true;
+  renderTasks();
+  const userId = currentUser.id;
+  const version = authVersion;
+  message('Đang lưu tiến độ...');
+  const { error } = await supabase
+    .from('daily_progress')
+    .upsert({
+      user_id: userId,
+      plan_date: PLAN_DATE,
+      completed_indices: completed,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id,plan_date' });
+  busy = false;
+
+  if (version !== authVersion || !currentUser || currentUser.id !== userId) return;
+  if (error) {
+    completed = previous;
+    renderTasks();
+    message('Lưu thất bại: ' + error.message + '. Kiểm tra kết nối và chính sách RLS.');
+  } else {
+    renderTasks();
+    message('Đã lưu thành công lên database.');
+  }
+}
+
+document.getElementById('authForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!supabase) return;
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  message('Đang đăng nhập...');
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) message('Đăng nhập thất bại: ' + error.message);
+});
+
+document.getElementById('signupBtn').addEventListener('click', async () => {
+  if (!supabase) return;
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  if (!email || password.length < 8) {
+    message('Nhập email hợp lệ và mật khẩu ít nhất 8 ký tự.');
+    return;
+  }
+  message('Đang tạo tài khoản...');
+  const { data, error } = await supabase.auth.signUp({
+    email, password,
+    options: { emailRedirectTo: window.location.origin + window.location.pathname }
+  });
+  if (error) message('Không tạo được tài khoản: ' + error.message);
+  else if (!data.session) message('Hãy kiểm tra email và xác nhận tài khoản, sau đó đăng nhập.');
+  else message('Tạo tài khoản thành công.');
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  if (supabase) await supabase.auth.signOut();
+});
+document.getElementById('refreshBtn').addEventListener('click', loadProgress);
+
+async function start() {
+  try {
+    supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    supabase.auth.onAuthStateChange((event, session) => {
+      setTimeout(async () => {
+        authVersion++;
+        if (session?.user) {
+          showSignedIn(session.user);
+          await loadProgress();
+        } else {
+          showSignedOut();
+          completed = [];
+          renderTasks();
+          message('Hãy đăng nhập để xem tiến độ riêng của bạn.');
+        }
+      }, 0);
+    });
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    if (data.session?.user) {
+      authVersion++;
+      showSignedIn(data.session.user);
+      await loadProgress();
+    } else {
+      showSignedOut();
+      message('Đăng nhập hoặc tạo tài khoản để bắt đầu.');
+    }
+  } catch (error) {
+    message('Không thể kết nối: ' + error.message);
+  }
+}
+start();
+</script>
+</body>
+</html>
